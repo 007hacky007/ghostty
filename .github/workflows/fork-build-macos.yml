@@ -18,7 +18,11 @@ concurrency:
 
 jobs:
   build-macos:
-    runs-on: macos-14
+    # macos-26 (Tahoe) has Xcode 26.x which matches what upstream used to
+    # build v1.3.1. Older macos-14 / macos-15 runners ship Xcode 16.x, which
+    # enforces Swift 6 strict concurrency more aggressively and fails on
+    # code that is fine under the newer Swift compiler.
+    runs-on: macos-26
     timeout-minutes: 120
     env:
       GHOSTTY_VERSION: 1.3.1-middle-click-paste-sync

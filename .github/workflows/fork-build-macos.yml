@@ -70,8 +70,15 @@ jobs:
           echo "$(pwd)/bin" >> "$GITHUB_PATH"
 
       # Build GhosttyKit (the Zig-produced framework the macOS app links against).
+      # Export SDKROOT so Zig uses Apple's real macOS SDK for linking instead of
+      # its bundled darwin libc stubs, which predate macOS 26 and are missing
+      # symbols like __availability_version_check.
       - name: Build GhosttyKit
         run: |
+          export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+          echo "SDKROOT=$SDKROOT"
+          xcrun --sdk macosx --show-sdk-version
+          zig version
           zig build \
             -Doptimize=ReleaseFast \
             -Demit-macos-app=false \

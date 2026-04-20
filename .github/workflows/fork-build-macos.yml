@@ -42,8 +42,11 @@ jobs:
 
       - name: Select Xcode
         run: |
-          # Pick the newest Xcode available on the runner.
-          XCODE_PATH=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          # Pin to the highest Xcode 16.x available on the runner. macos-15
+          # ships Xcode 16.4 natively; the Xcode 26.x bundles present on the
+          # runner target the Tahoe SDK and ibtool/asset-catalog compilation
+          # crashes under Sequoia's window server.
+          XCODE_PATH=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)
           if [ -z "$XCODE_PATH" ]; then
             XCODE_PATH=/Applications/Xcode.app
           fi

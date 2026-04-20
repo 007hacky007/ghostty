@@ -18,10 +18,9 @@ concurrency:
 
 jobs:
   build-macos:
-    # macos-26 (Tahoe) has Xcode 26.x which matches what upstream used to
-    # build v1.3.1. Older macos-14 / macos-15 runners ship Xcode 16.x, which
-    # enforces Swift 6 strict concurrency more aggressively and fails on
-    # code that is fine under the newer Swift compiler.
+    # macos-26 (Tahoe) ships Xcode 26.x, matching what upstream uses to build
+    # v1.3.1. On older macos-14 / macos-15 runners Xcode 16.x enforces Swift 6
+    # strict concurrency more aggressively and rejects DockTilePlugin.swift.
     runs-on: macos-26
     timeout-minutes: 120
     env:
@@ -40,11 +39,6 @@ jobs:
           echo "build=$GHOSTTY_BUILD" >> "$GITHUB_OUTPUT"
           echo "commit=$GHOSTTY_COMMIT" >> "$GITHUB_OUTPUT"
 
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@main
-        with:
-          determinate: true
-
       - name: Select Xcode
         run: |
           # Pick the newest Xcode available on the runner.
@@ -55,6 +49,15 @@ jobs:
           echo "Using $XCODE_PATH"
           sudo xcode-select -s "$XCODE_PATH"
           xcodebuild -version
+
+      # Install Zig directly (no Nix). The Nix-based toolchain breaks linking
+      # against libSystem on macOS 26 runners, since the Nix apple-sdk stubs
+      # do not match the host OS. Installing upstream Zig lets it use Apple's
+      # own SDK via xcrun.
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
 
       - name: Setup Sparkle
         env:
@@ -69,15 +72,13 @@ jobs:
       # Build GhosttyKit (the Zig-produced framework the macOS app links against).
       - name: Build GhosttyKit
         run: |
-          nix develop -c \
-            zig build \
-              -Doptimize=ReleaseFast \
-              -Demit-macos-app=false \
-              -Dversion-string=${GHOSTTY_VERSION}
+          zig build \
+            -Doptimize=ReleaseFast \
+            -Demit-macos-app=false \
+            -Dversion-string="${GHOSTTY_VERSION}"
 
       # Build Ghostty.app with xcodebuild. Ad-hoc sign (CODE_SIGN_IDENTITY="-")
-      # so we do not need an Apple Developer certificate. MUST NOT run inside
-      # the Nix shell: Nix breaks xcodebuild.
+      # so we do not need an Apple Developer certificate.
       - name: Build Ghostty.app
         run: |
           cd macos

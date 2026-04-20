@@ -1,0 +1,116 @@
+name: Fork Build macOS
+
+# Fork-friendly macOS build workflow. Produces an unsigned / ad-hoc-signed
+# Ghostty.app zipped as a workflow artifact you can download from the run.
+# First launch on macOS: right-click -> Open, or run
+#   xattr -dr com.apple.quarantine /Applications/Ghostty.app
+# to clear the quarantine attribute.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - "middle-click-paste-sync*"
+
+concurrency:
+  group: fork-build-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+    timeout-minutes: 120
+    env:
+      GHOSTTY_VERSION: 1.3.1-middle-click-paste-sync
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract build info
+        id: build_info
+        run: |
+          GHOSTTY_BUILD=$(git rev-list --count HEAD)
+          GHOSTTY_COMMIT=$(git rev-parse --short HEAD)
+          echo "build=$GHOSTTY_BUILD" >> "$GITHUB_OUTPUT"
+          echo "commit=$GHOSTTY_COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: true
+
+      - name: Select Xcode
+        run: |
+          # Pick the newest Xcode available on the runner.
+          XCODE_PATH=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE_PATH" ]; then
+            XCODE_PATH=/Applications/Xcode.app
+          fi
+          echo "Using $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+
+      - name: Setup Sparkle
+        env:
+          SPARKLE_VERSION: 2.9.0
+        run: |
+          mkdir -p .action/sparkle
+          cd .action/sparkle
+          curl -L "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-for-Swift-Package-Manager.zip" -o sparkle.zip
+          unzip -q sparkle.zip
+          echo "$(pwd)/bin" >> "$GITHUB_PATH"
+
+      # Build GhosttyKit (the Zig-produced framework the macOS app links against).
+      - name: Build GhosttyKit
+        run: |
+          nix develop -c \
+            zig build \
+              -Doptimize=ReleaseFast \
+              -Demit-macos-app=false \
+              -Dversion-string=${GHOSTTY_VERSION}
+
+      # Build Ghostty.app with xcodebuild. Ad-hoc sign (CODE_SIGN_IDENTITY="-")
+      # so we do not need an Apple Developer certificate. MUST NOT run inside
+      # the Nix shell: Nix breaks xcodebuild.
+      - name: Build Ghostty.app
+        run: |
+          cd macos
+          xcodebuild \
+            -target Ghostty \
+            -configuration Release \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            OTHER_CODE_SIGN_FLAGS="--deep"
+
+      - name: Stamp Info.plist
+        env:
+          GHOSTTY_BUILD: ${{ steps.build_info.outputs.build }}
+          GHOSTTY_COMMIT: ${{ steps.build_info.outputs.commit }}
+        run: |
+          PLIST="macos/build/Release/Ghostty.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :GhosttyCommit $GHOSTTY_COMMIT" "$PLIST" || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GHOSTTY_BUILD" "$PLIST" || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $GHOSTTY_VERSION" "$PLIST" || true
+
+      - name: Ad-hoc sign app bundle
+        run: |
+          # Re-sign the bundle ad-hoc with entitlements so it launches on
+          # Apple Silicon without being rejected by the hardened runtime.
+          /usr/bin/codesign --force --deep --sign - \
+            --entitlements macos/Ghostty.entitlements \
+            macos/build/Release/Ghostty.app
+
+      - name: Zip App
+        run: |
+          cd macos/build/Release
+          zip -9 -r --symlinks ../../../ghostty-macos-universal.zip Ghostty.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghostty-macos-universal
+          path: ghostty-macos-universal.zip
+          if-no-files-found: error

@@ -18,10 +18,11 @@ concurrency:
 
 jobs:
   build-macos:
-    # macos-26 (Tahoe) ships Xcode 26.x, matching what upstream uses to build
-    # v1.3.1. On older macos-14 / macos-15 runners Xcode 16.x enforces Swift 6
-    # strict concurrency more aggressively and rejects DockTilePlugin.swift.
-    runs-on: macos-26
+    # macos-15 ships Xcode 16.4 (Swift 6.1). Zig 0.15.2 cannot currently link
+    # against the Tahoe SDK stubs on macos-26, so we stay on Sequoia and
+    # patched DockTilePlugin.swift with `sending NSImage` to satisfy Swift 6
+    # strict concurrency.
+    runs-on: macos-15
     timeout-minutes: 120
     env:
       GHOSTTY_VERSION: 1.3.1-middle-click-paste-sync
@@ -70,15 +71,9 @@ jobs:
           echo "$(pwd)/bin" >> "$GITHUB_PATH"
 
       # Build GhosttyKit (the Zig-produced framework the macOS app links against).
-      # Export SDKROOT so Zig uses Apple's real macOS SDK for linking instead of
-      # its bundled darwin libc stubs, which predate macOS 26 and are missing
-      # symbols like __availability_version_check.
       - name: Build GhosttyKit
         run: |
           export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
-          echo "SDKROOT=$SDKROOT"
-          xcrun --sdk macosx --show-sdk-version
-          zig version
           zig build \
             -Doptimize=ReleaseFast \
             -Demit-macos-app=false \

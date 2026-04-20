@@ -126,7 +126,11 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
 }
 
 private extension NSDockTile {
-    func setIcon(_ newIcon: NSImage) {
+    // `sending` lets Swift 6 strict concurrency transfer the non-Sendable
+    // NSImage into the main-queue closure without a data-race diagnostic.
+    // All callers pass freshly-constructed NSImage instances that they do
+    // not retain.
+    func setIcon(_ newIcon: sending NSImage) {
         // Update the Dock tile on the main thread.
         DispatchQueue.main.async {
             let iconView = NSImageView(frame: CGRect(origin: .zero, size: self.size))

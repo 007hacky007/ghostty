@@ -48,16 +48,18 @@ jobs:
             -Demit-macos-app=false \
             -Dversion-string="${GHOSTTY_VERSION}"
 
-      - name: Archive framework
+      - name: Archive zig outputs
         run: |
-          cd macos
-          tar -czf ../GhosttyKit.xcframework.tgz GhosttyKit.xcframework
+          # The Xcode project also consumes zig-out/share/* (zsh, vim, fish,
+          # bat, ghostty, nvim, locale, man, terminfo, bash-completion) as
+          # bundled resources, so carry the whole tree across to build-app.
+          tar -czf ghostty-zig-outputs.tgz macos/GhosttyKit.xcframework zig-out
 
-      - name: Upload framework artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ghostty-kit-xcframework
-          path: GhosttyKit.xcframework.tgz
+          name: ghostty-zig-outputs
+          path: ghostty-zig-outputs.tgz
           if-no-files-found: error
 
   build-app:
@@ -88,16 +90,17 @@ jobs:
           sudo xcode-select -s "$XCODE_PATH"
           xcodebuild -version
 
-      - name: Download framework artifact
+      - name: Download zig outputs
         uses: actions/download-artifact@v4
         with:
-          name: ghostty-kit-xcframework
+          name: ghostty-zig-outputs
           path: .
 
-      - name: Extract framework
+      - name: Extract zig outputs
         run: |
-          tar -xzf GhosttyKit.xcframework.tgz -C macos
+          tar -xzf ghostty-zig-outputs.tgz
           test -d macos/GhosttyKit.xcframework
+          test -d zig-out/share
 
       - name: Setup Sparkle
         env:
